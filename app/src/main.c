@@ -4,45 +4,49 @@
 LOG_MODULE_REGISTER(demo, LOG_LEVEL_DBG);
 
 #define STACK_SIZE 1024
+#define THREAD_PRIORITY 5
 
-#define PRIO_COOP (-1)
-#define PRIO_LOW 7
-#define PRIO_MED 5
-#define PRIO_HIGH 3
+K_THREAD_STACK_DEFINE(thread_1_stack_area, STACK_SIZE);
+static struct k_thread thread_1;
 
-void thread_coop_fn(void *p1, void *p2, void *p3)
+K_THREAD_STACK_DEFINE(thread_2_stack_area, STACK_SIZE);
+static struct k_thread thread_2;
+
+K_MUTEX_DEFINE(mutex_counter);
+
+volatile uint32_t counter = 0;
+
+void increment_counter(void *p1, void *p2, void *p3)
 {
-    for (int i = 0; i < 5; i++) {
-        k_busy_wait(200000);
-        LOG_INF("[T_COOP] iterations %d/5", i + 1);
-    }
-
-    k_yield();
-}
-
-void thread_fn(void *p1, void *p2, void *p3)
-{
-    const char *name = p1;
-    int32_t ms_sleep = (int32_t)POINTER_TO_INT(p2);
-    uint32_t loop = 0;
-
-    while (1) {
-        k_msleep(ms_sleep);
-        LOG_INF("%s running loop=%u", name, ++loop);
+    for (volatile uint32_t i = 0; i < 1000000; i++)
+    {
+        k_mutex_lock(&mutex_counter, K_FOREVER);
+        counter++;
+        k_mutex_unlock(&mutex_counter);
     }
 }
-
-K_THREAD_DEFINE(thread_coop, STACK_SIZE, thread_coop_fn,
-                NULL, NULL, NULL, PRIO_COOP, 0, 0);
-K_THREAD_DEFINE(thread_low, STACK_SIZE, thread_fn,
-                "T_LOW", 300, NULL, PRIO_LOW, 0, 0);
-K_THREAD_DEFINE(thread_med, STACK_SIZE, thread_fn,
-                "T_MED", 200, NULL, PRIO_MED, 0, 0);
-K_THREAD_DEFINE(thread_high, STACK_SIZE, thread_fn,
-                "T_HIGH", 100, NULL, PRIO_HIGH, 0, 0);
 
 int main(void)
 {
+    k_thread_create(&thread_1, thread_1_stack_area,
+                    K_THREAD_STACK_SIZEOF(thread_1_stack_area),
+                    increment_counter, NULL, NULL, NULL,
+                    THREAD_PRIORITY, 0, K_FOREVER);
+    
+
+    k_thread_create(&thread_2, thread_2_stack_area,
+                    K_THREAD_STACK_SIZEOF(thread_2_stack_area),
+                    increment_counter, NULL, NULL, NULL,
+                    THREAD_PRIORITY, 0, K_FOREVER);
+
+    k_thread_start(&thread_1);
+    k_thread_start(&thread_2);
+
+    k_thread_join(&thread_1, K_FOREVER);
+    k_thread_join(&thread_2, K_FOREVER);
+
+    LOG_INF("Counter: %u", counter);
+
     return 0;
 }
 
